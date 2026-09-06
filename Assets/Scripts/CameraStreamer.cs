@@ -5,6 +5,8 @@ using System.Text;
 public class CameraStreamer : MonoBehaviour
 {
 
+    public TrackingMetrics trackingMetrics;
+
     public float panGain = 0.05f;
     public float tiltGain = 0.05f;
 
@@ -26,6 +28,7 @@ public class CameraStreamer : MonoBehaviour
 
     private float timer;
 
+    private int frameId = 0;
     // Buffer for receiving Python's response
     private byte[] receiveBuffer = new byte[1024];
     private string receiveString = "";
@@ -95,9 +98,18 @@ public class CameraStreamer : MonoBehaviour
         byte[] image = texture.EncodeToJPG(75);
 
         // Send image length first
-        byte[] size = System.BitConverter.GetBytes(image.Length);
+        frameId++;
 
-        stream.Write(size, 0, 4);
+        byte[] idBytes = System.BitConverter.GetBytes(frameId);
+        byte[] sizeBytes = System.BitConverter.GetBytes(image.Length);
+
+        // Send frame ID
+        stream.Write(idBytes, 0, 4);
+
+        // Send image size
+        stream.Write(sizeBytes, 0, 4);
+
+        // Send JPEG
         stream.Write(image, 0, image.Length);
     }
 
@@ -145,17 +157,17 @@ public class CameraStreamer : MonoBehaviour
             return;
 
         if (
-            int.TryParse(values[0], out int x1) &&
-            int.TryParse(values[1], out int y1) &&
-            int.TryParse(values[2], out int x2) &&
-            int.TryParse(values[3], out int y2)
+            float.TryParse(values[0], out float x1) &&
+            float.TryParse(values[1], out float y1) &&
+            float.TryParse(values[2], out float x2) &&
+            float.TryParse(values[3], out float y2)
         )
         {
             CalculateError(x1, y1, x2, y2);
         }
     }
 
-    void CalculateError(int x1, int y1, int x2, int y2)
+    void CalculateError(float x1, float y1, float x2, float y2)
     {
         float beaconX = (x1 + x2) / 2f;
         float beaconY = (y1 + y2) / 2f;
@@ -171,15 +183,29 @@ public class CameraStreamer : MonoBehaviour
             $"Error: ({errorX:F1}, {errorY:F1})"
         );
 
+        // Send error to UI
+        if (trackingMetrics != null)
+        {
+            trackingMetrics.UpdateError(errorX, errorY);
+        }
+
         MoveCamera(errorX, errorY);
     }
 
     void MoveCamera(float errorX, float errorY)
     {
+        // Dead zone
+        if (Mathf.Abs(errorX) < 5f)
+            errorX = 0f;
+
+        if (Mathf.Abs(errorY) < 5f)
+            errorY = 0f;
+
+        // Calculate movement
         float pan = errorX * panGain;
-        // float tilt = errorY * tiltGain;
         float tilt = -errorY * tiltGain;
 
+        // Limit maximum movement
         pan = Mathf.Clamp(
             pan,
             -maxPanSpeed,
@@ -192,6 +218,7 @@ public class CameraStreamer : MonoBehaviour
             maxTiltSpeed
         );
 
+        // Move camera
         cam.transform.Rotate(
             -tilt,
             pan,

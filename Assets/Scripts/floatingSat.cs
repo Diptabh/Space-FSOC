@@ -2,58 +2,139 @@ using UnityEngine;
 
 public class FloatingSatellite : MonoBehaviour
 {
-    [Header("Forward Movement")]
-    public float speed = 0.2f;
+    [Header("Orbit")]
+    [Tooltip("Object that the satellite will orbit around.")]
+    public Transform orbitTarget;
 
-    [Header("To-and-From Motion")]
-    public float arcDistance = 2f;
-    public float arcSpeed = 0.3f;
+    [Tooltip("Distance between the satellite and the orbit target.")]
+    public float orbitRadius = 10f;
 
-    private Vector3 moveDirection;
-    private Vector3 arcDirection;
-    private Vector3 startPosition;
-    private float time;
+    [Tooltip("Orbit speed in degrees per second.")]
+    public float orbitSpeed = 5f;
+
+    [Tooltip("1 = one direction, -1 = opposite direction.")]
+    public int orbitDirection = 1;
+
+    [Tooltip("Axis around which the satellite orbits.")]
+    public Vector3 orbitAxis = Vector3.up;
+
+
+    [Header("Controlled Rotation")]
+    [Tooltip("Local axis the satellite rotates around.")]
+    public Vector3 rotationAxis = Vector3.up;
+
+    [Tooltip("Rotation speed in degrees per second.")]
+    public float rotationSpeed = 5f;
+
+    [Tooltip("Minimum rotation angle.")]
+    public float minRotationAngle = -20f;
+
+    [Tooltip("Maximum rotation angle.")]
+    public float maxRotationAngle = 20f;
+
+
+    private float orbitAngle;
+    private float currentRotation;
+    private int rotationDirection = 1;
+
+    private Quaternion initialRotation;
+
 
     void Start()
     {
-        startPosition = transform.position;
+        orbitAxis = orbitAxis.normalized;
+        rotationAxis = rotationAxis.normalized;
 
-        // Pick one random direction for the satellite to drift
-        moveDirection = Random.onUnitSphere.normalized;
+        // Remember starting rotation
+        initialRotation = transform.localRotation;
 
-        // Pick another direction for the side-to-side motion
-        arcDirection = Vector3.Cross(moveDirection, Random.onUnitSphere).normalized;
-
-        // Make sure the arc direction is valid
-        if (arcDirection == Vector3.zero)
+        // Determine the starting orbit angle from the satellite's position
+        if (orbitTarget != null)
         {
-            arcDirection = Vector3.up;
+            Vector3 offset = transform.position - orbitTarget.position;
+
+            // Project the offset onto the orbit plane
+            offset -= Vector3.Project(offset, orbitAxis);
+
+            if (offset.sqrMagnitude > 0.001f)
+            {
+                orbitAngle = Vector3.SignedAngle(
+                    Vector3.right,
+                    offset.normalized,
+                    orbitAxis
+                );
+            }
         }
+
+        currentRotation = 0f;
     }
+
 
     void Update()
     {
-        time += Time.deltaTime;
+        if (orbitTarget == null)
+            return;
 
-        // Main slow movement in one direction
-        Vector3 forwardMovement = moveDirection * speed * Time.deltaTime;
 
-        // Large smooth back-and-forth motion
-        Vector3 arcMovement =
-            arcDirection *
-            Mathf.Sin(time * arcSpeed) *
-            arcDistance;
+        // -------------------------
+        // ORBIT MOVEMENT
+        // -------------------------
 
-        // Move forward while adding the arc
-        transform.position += forwardMovement;
+        orbitAngle +=
+            orbitSpeed *
+            orbitDirection *
+            Time.deltaTime;
 
-        // Apply the side-to-side offset
-        transform.position +=
-            arcDirection *
-            (
-                Mathf.Sin(time * arcSpeed) -
-                Mathf.Sin((time - Time.deltaTime) * arcSpeed)
-            ) *
-            arcDistance;
+        if (orbitAngle > 360f)
+            orbitAngle -= 360f;
+
+        if (orbitAngle < 0f)
+            orbitAngle += 360f;
+
+
+        // Calculate position on the orbit
+        Quaternion orbitRotation =
+            Quaternion.AngleAxis(
+                orbitAngle,
+                orbitAxis
+            );
+
+        Vector3 orbitOffset =
+            orbitRotation * Vector3.right * orbitRadius;
+
+        transform.position =
+            orbitTarget.position + orbitOffset;
+
+
+        // -------------------------
+        // CONTROLLED ROTATION
+        // -------------------------
+
+        currentRotation +=
+            rotationSpeed *
+            rotationDirection *
+            Time.deltaTime;
+
+
+        // Reverse direction at rotation limits
+        if (currentRotation >= maxRotationAngle)
+        {
+            currentRotation = maxRotationAngle;
+            rotationDirection = -1;
+        }
+        else if (currentRotation <= minRotationAngle)
+        {
+            currentRotation = minRotationAngle;
+            rotationDirection = 1;
+        }
+
+
+        // Apply rotation relative to starting rotation
+        transform.localRotation =
+            initialRotation *
+            Quaternion.AngleAxis(
+                currentRotation,
+                rotationAxis
+            );
     }
 }
